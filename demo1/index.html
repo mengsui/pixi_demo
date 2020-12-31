@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="utf-8">
+		<title>step2</title>
+		<meta name="viewport" content="initial-scale=1.0,user-scalable=0,width=device-width,height=device-height,target-densitydpi=medium-dpi">
+		<style type="text/css">
+			* {
+				margin: 0;
+				padding: 0;
+				font-size: 0;
+			}
+		</style>
+	</head>
+	<body>
+		<div id="pixi_dom"></div>
+
+		<!-- pixi.js -->
+		<script src="./js/pixi.js"></script>
+		<!-- 添加pixi插件（目前了解的功能为排序，pixi版本为5.1.5） -->
+		<script src="./js/pixi-layers.js"></script>
+
+		<!-- charm.js补间动画 -->
+		<!-- <script src="./js/charm.js"></script> -->
+		<script src="./js/TweenMax.min.js"></script>
+		
+		<!-- bump.js碰撞监测 -->
+		<script src="./js/bump.js"></script>
+		<!-- canvas性能监测 -->
+		<script src="./js/stats.min.js"></script>
+
+		<script type="text/javascript">
+			
+			// canvas性能
+			function addStats() {
+				stats = new Stats();
+				stats.setMode(2);
+				stats.domElement.style.position = 'absolute';
+				stats.domElement.style.left = '0px';
+				stats.domElement.style.top = '0px';
+				document.body.appendChild(stats.domElement);
+			};
+			// 图片排序
+			function imagesSort(){
+				// 排序使用
+				app.stage = new PIXI.display.Stage();
+				greenGroup = new PIXI.display.Group(0, true);
+				greenGroup.on('sort', (sprite) => {
+				    sprite.zOrder = sprite.zIndex;
+				});
+				app.stage.sortableChildren = true;// 开启排序
+				app.stage.addChild(new PIXI.display.Layer(greenGroup));// 添加到排序里面
+			}
+			//生成从minNum到maxNum的随机数
+			function randomNum(minNum, maxNum) {
+			    switch (arguments.length) {
+			        case 1:
+			            return parseInt(Math.random() * minNum + 1, 10);
+			            break;
+			        case 2:
+			            return parseInt(Math.random() * (maxNum - minNum + 1) + minNum, 10);
+			            break;
+			        default:
+			            return 0;
+			            break;
+			    }
+			}
+		</script>
+		<script type="text/javascript">
+			let bodyHeight = window.innerHeight;
+			let bodyWidth = window.innerWidth;
+			let $bl = 750 / bodyWidth;
+			const pixioption = {
+				width: 750,
+				height: bodyHeight * $bl,
+				antialias: true,// 消除锯齿
+				transparent: false,// 背景不透明
+				resolution: 1,// 像素设置
+				roundPixels: true
+			};
+			
+			// 修改动画
+			const obj = {
+				integralTime: 5,// 传动带速度(数值越小速度越快)
+				launchTime: 1,// 发射后飞箭的速度。（数值越小速度越快）
+				// launchBezier: false,// bezier运动轨迹
+			};
+			// 需要的全局数据
+			let tweenFingerObj = {};
+			let testingPanObj = {
+				collision: 0,// 检测是否碰撞判断 1 == 碰撞了 2 == 未碰撞 
+				index: null,// 第几个碰撞了
+				reward: null,// 碰撞了多少倍
+			};
+			
+			/**
+			 * canvas性能监测
+			 */
+			let stats;
+			addStats();
+				
+			/**
+			 * pixi变量
+			 */
+			let app = new PIXI.Application(pixioption),
+				  renderer = app.renderer,
+				  Sprite = PIXI.Sprite,
+				  imgArr = PIXI.utils.TextureCache,
+				  playground = document.getElementById('pixi_dom');
+			
+			//实例化Bump
+			let b = new Bump(PIXI);
+				
+			// 把 Pixi 创建的 canvas 添加到页面上
+			app.view.style.width = bodyWidth + 'px';
+			app.view.style.height = bodyHeight + 'px';
+			playground.appendChild(renderer.view);
+				
+			// 图片排序使用
+			let greenGroup;// 需要有容器
+			imagesSort();
+			
+			// 在舞台里面添加容器(排序的话需要使用容器)
+			let container = new PIXI.Container();
+			app.stage.addChild(container);
+			
+			let lineSolidContainer = new PIXI.Container();// 传送带
+			let integralContainer = new PIXI.Container();// 积分
+			let integralCollisionContainer = new PIXI.Container();// 积分碰撞有效区域
+			let testingContainer = new PIXI.Container();// 测试当前碰撞那个飞箭位置。
+			let buttonContainer = new PIXI.Container();// 按钮
+			let fingerContainer = new PIXI.Container();// 手指
+			let launchContainer = new PIXI.Container();// 手指
+			container.addChild(lineSolidContainer, integralContainer, integralCollisionContainer, buttonContainer, fingerContainer, testingContainer, launchContainer);
+			
+			// tween 动画
+			let tweenLineArr = [];// 传送带动画
+			let tweenIntegralArr = [];// 积分动画
+			let tweenFingerArr = [];// 手指动画
+			
+			
+			
+			// 图片加载
+			app.loader
+				.add('images/zong.json')
+				.load(setup);
+				
+			// 加载图片完成
+			function setup(){
+				// 传送带
+				lineSolidBox();
+				// 积分
+				integralBox();
+				// 按钮
+				buttonBox();
+				// 添加手指
+				fingerBox();
+				
+				// 执行动画
+				app.ticker.add(tick);
+			};
+			function tick(){
+				stats.begin();
+				
+				// 碰撞检测
+				collisionFun();
+				
+				stats.end();
+			};
+
+			// 传送带外框
+			function lineSolidBox(){
+				let lineSolid;
+				lineSolid = new Sprite(imgArr['line.png']);
+				lineSolidContainer.addChild(lineSolid);
+				for(i = 0; i < 10; i++){
+					let line = new Line(i * 82);
+					lineSolidContainer.addChild(line);
+				};
+				lineBox();
+				lineSolidContainer.y = 200;
+			};
+			function lineBox(){
+				let line = new Line(820, ()=>{
+					lineBox();
+				});
+				lineSolidContainer.addChild(line);
+			};
+			/** 
+			 *  传送带
+			 * 	lineX: 需要定位的位置从哪里开始   如果从最后一个开始。则填写 0 或者 false
+			 * 	fn:	动画开始后的回掉
+			 * 	
+			 * 	注意：当传送带速度过快的时候会出现误差。所以 +0.02 如果时间长的话可以不加。 
+			 */
+			class Line{
+				constructor(lineX, fn) {
+					let _line;
+					let tm = new TimelineMax();
+					_line = new Sprite(imgArr['line_c_02.png']);
+					_line.y = 20;
+					_line.x = lineX || 0;
+					tm.to(_line, obj.integralTime, {x: lineX - 902, ease: Power0.easeIn})
+						.addCallback((e)=>{
+							fn && fn();
+							// 注意: 0.02只是为了强制消除误差.
+						}, `-=${obj.integralTime - obj.integralTime / 902 * 82 + 0.02}`);
+					tweenLineArr.push(tm);
+					return _line;
+				}
+			};
+			
+			// 积分
+			function integralBox(){
+				// 随机生成
+				let fen = [10, 10, 10, 10, 15, 15, 15, 20, 20, 30, 40, 100];
+				let fenValue = fen[randomNum(0, fen.length - 1)];
+				let integralObj = new Integral(fenValue, (_tm)=>{
+					integralBox();
+				});
+				integralContainer.addChild(integralObj.integral);
+				integralCollisionContainer.addChild(integralObj.rect);
+			}
+			/**
+			 * 积分
+			 * fen: 分值的倍数
+			 * fn: 动画回掉
+			 */
+			class Integral{
+				constructor(fen, fn) {
+				    let integral, rect;
+					let tm = new TimelineMax();
+					let tm2 = new TimelineMax();
+					// 积分
+					integral = new Sprite(imgArr[`fen${fen}.png`]);
+					let _time = obj.integralTime / 902 * (750 + 750 + integral.width);// 当前积分根据传送带速度计算时间
+
+					integral.x = 750;
+					integral.y = 50;
+					integral.name = fen;
+					tm.to(integral, _time, {x: (750 + integral.width) * -1, ease: Power0.easeIn,});
+					tweenIntegralArr.push(tm)
+
+					// 有效碰撞区域
+					rect = new Sprite(imgArr['gamelassohide.png']);
+					rect.width = 30;
+					rect.height = 20;
+					rect.x = 750 + 113;
+					rect.y = 50 + 58;
+					rect.name = fen;
+					tm2.to(rect, _time, {x: (750 + integral.width - 113) * -1, ease: Power0.easeIn,})
+						.addCallback((e)=>{
+							fn();
+						},`-=${_time - _time / 1727 * 227}`);// 这个时间需要计算
+
+					tweenIntegralArr.push(tm2);
+					return {
+						integral,
+						rect,
+					}
+				}
+			}
+			
+			// 按钮
+			let btnNub = 0, pan = true;
+			function buttonBox(){
+				let btn;
+				btn = new Sprite(imgArr['btn.png']);
+				let _y = bodyHeight * $bl - btn.height;
+				let _x = (750 - btn.width) / 2;
+				btn.x = _x;
+				btn.y = _y;
+				btn.buttonMode = true;
+				btn.interactive = true;
+				btn.on('pointerdown', ()=>{
+					let pauseArr = [...tweenLineArr, ...tweenIntegralArr, ...tweenFingerArr];
+					// 暂停动画
+					if(pan){
+						pan = false;
+						pauseArr.forEach(item=>{
+							item.pause();
+						});
+						btnNub++;
+						testingFun(btnNub, ()=>{
+							// Launch 第二个参数为是是否隐藏
+							let _launch = new Launch(btnNub, 1);
+							launchContainer.addChild(_launch);
+							
+							alert(`第${testingPanObj.index}个飞箭。中奖 ${testingPanObj.reward} 倍`);
+						}, ()=>{
+							let _launch = new Launch(btnNub, 0);
+							launchContainer.addChild(_launch);
+							alert('很遗憾未中奖！')
+						});
+					} else {
+						pan = true;
+						pauseArr.forEach(item=>{
+							item.play();
+						});
+						// 清空已经点击的飞箭 和 碰撞的飞箭。
+						launchContainer.children = [];
+						testingContainer.children = [];
+					};
+				});
+				buttonContainer.addChild(btn);
+			};
+			// 检测当前碰撞的是那个 是否可以发射飞箭
+			function testingFun(nub, fn, err){
+				testingContainer.addChild(new Testing(nub));
+				const timers = setTimeout(()=>{
+					if(testingPanObj.collision === 1){
+						console.log('碰撞了')
+						fn && fn();
+					} else if(testingPanObj.collision === 0) {
+						console.log('未碰撞');
+						err && err();
+					};
+					// 数据重置
+					testingPanObj = {
+						collision: 0,// 检测是否碰撞判断 1 == 碰撞了 2 == 未碰撞 
+						index: null,// 第几个碰撞了
+						reward: null,// 碰撞了多少倍
+					};
+					clearInterval(timers)
+				}, 500);
+			};
+			// 检测是否可以碰撞上
+			class Testing {
+				constructor(nub) {
+				    let testimg;
+					testimg = new Sprite(imgArr['gamelassohide.png']);
+					testimg.x = tweenFingerObj.x;
+					testimg.y = 120;
+					testimg.name = `当前是${nub}`;
+					return testimg;
+				}
+			}
+			
+			class Launch {
+				constructor(nub, alpha, fn) {
+					let launch;
+				    let tm = new TimelineMax();
+					launch = new Sprite(imgArr['gamelasso.png']);
+					
+					launch.x = (750 - 284) / 2 + 284/2;
+					launch.y = bodyHeight * $bl - 300;
+					let launchObj = {
+						y: 120,
+						x: tweenFingerObj.x, 
+						alpha,
+						ease: Power0.easeIn,
+					};
+					if(obj.launchBezier){
+						launchObj = {
+							alpha,
+							ease: Power0.easeIn,
+							bezier:{
+								values:[
+									{x: (750 - 284) / 2 + 284/2, y: bodyHeight * $bl - 300}, 
+									{x: tweenFingerObj.x, y: 120},
+								],
+							}
+						};
+					};
+					tm.to(launch, obj.launchTime, launchObj);
+					
+					return launch;
+				}
+			}
+			
+			// 手指
+			function fingerBox(){
+				let finger;
+				let _x = (750 - 284) / 2 + 284/2;
+				let _y = bodyHeight * $bl - 300;
+				
+				let tm = new TimelineMax({
+					yoyo: true,
+					repeat:-1,
+					onUpdateParams: ["{self}"],
+					onUpdate: (e)=>{
+						let tan, _zheng = false;
+						let objx = 0;
+						let angle = e.progress().toFixed(2) * .8 * 57.32;
+						if(angle > 23){
+							tan = angle - 23;
+							_zheng = true;
+							objx = 375 + Math.tan(tan * 0.017453293) * (_y - 108);
+						} else {
+							tan = 23 - angle;
+							objx = 375 - Math.tan(tan * 0.017453293) * (_y - 108);
+						};
+						
+						tweenFingerObj.progress = e.progress().toFixed(2);
+						tweenFingerObj.x = objx;
+						tweenFingerObj.zheng = _zheng;
+					},
+				});
+				
+				finger = new Sprite(imgArr['arrow.png']);
+				finger.anchor.set(.5, 1.5);
+				finger.x = _x;
+				finger.y = _y + finger.height/2;// 
+				finger.rotation = -0.4;
+				tm.fromTo(finger, 2, {rotation: -0.4, ease: Power0.easeIn}, {rotation: 0.4, ease: Power0.easeIn})
+				tweenFingerArr.push(tm);
+
+				fingerContainer.addChild(finger);
+			};
+
+			// 碰撞监测
+			let collisionPan = true;// 防止多次碰撞监测
+			let collisionArr = [];
+			function collisionFun(){
+				if(collisionPan){
+					for(let i = 0; i < testingContainer.children.length; i++) {
+						let c1 = testingContainer.children[i];
+						b.hit(c1, integralCollisionContainer.children, false, false, true, function(collision, platform){
+							if(!collisionArr.includes(c1.name)){
+								collisionArr.push(c1.name);
+								testingPanObj.collision = 1;
+								testingPanObj.index = c1.name;
+								testingPanObj.reward = platform.name;
+							};
+						});
+					};
+				};
+			};
+		</script>
+	</body>
+</html>
